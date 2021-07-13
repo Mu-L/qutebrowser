@@ -206,21 +206,11 @@ def smoke_test(executable, debug):
         raise Exception("\n".join(lines))
 
 
-def patch_windows_exe(exe_path):
-    """Make sure the Windows .exe has a correct checksum.
-
-    WORKAROUND for https://github.com/pyinstaller/pyinstaller/issues/5579
-    """
+def verify_windows_exe(exe_path):
+    """Make sure the Windows .exe has a correct checksum."""
     import pefile
     pe = pefile.PE(exe_path)
-
-    # If this fails, a PyInstaller upgrade fixed things, and we can remove the
-    # workaround. Would be a good idea to keep the check, though.
-    assert not pe.verify_checksum()
-
-    pe.OPTIONAL_HEADER.CheckSum = pe.generate_checksum()
-    pe.close()
-    pe.write(exe_path)
+    assert pe.verify_checksum()
 
 
 def patch_mac_app():
@@ -260,6 +250,7 @@ INFO_PLIST_UPDATES = {
     'CFBundleShortVersionString': qutebrowser.__version__,
     'NSSupportsAutomaticGraphicsSwitching': True,
     'NSHighResolutionCapable': True,
+    'NSRequiresAquaSystemAppearance': False,
     'CFBundleURLTypes': [{
         "CFBundleURLName": "http(s) URL",
         "CFBundleURLSchemes": ["http", "https"]
@@ -278,7 +269,24 @@ INFO_PLIST_UPDATES = {
         "CFBundleTypeMIMETypes": ["text/xhtml"],
         "CFBundleTypeName": "XHTML document",
         "CFBundleTypeRole": "Viewer",
-    }]
+    }],
+
+    # https://developer.apple.com/documentation/avfoundation/cameras_and_media_capture/requesting_authorization_for_media_capture_on_macos
+    #
+    # Keys based on Google Chrome's .app, except Bluetooth keys which seem to
+    # be iOS-only.
+    #
+    # If we don't do this, we get a SIGABRT from macOS when those permissions
+    # are used, and even in some other situations (like logging into Google
+    # accounts)...
+    'NSCameraUsageDescription':
+        'A website in qutebrowser wants to use the camera.',
+    'NSLocationUsageDescription':
+        'A website in qutebrowser wants to use your location information.',
+    'NSMicrophoneUsageDescription':
+        'A website in qutebrowser wants to use your microphone.',
+    'NSBluetoothAlwaysUsageDescription':
+        'A website in qutebrowser wants to access Bluetooth.',
 }
 
 
@@ -363,8 +371,8 @@ def _build_windows_single(*, x64, skip_packaging, debug):
     shutil.move(out_pyinstaller, outdir)
     exe_path = os.path.join(outdir, 'qutebrowser.exe')
 
-    utils.print_title(f"Patching {human_arch} exe")
-    patch_windows_exe(exe_path)
+    utils.print_title(f"Verifying {human_arch} exe")
+    verify_windows_exe(exe_path)
 
     utils.print_title(f"Running {human_arch} smoke test")
     smoke_test(exe_path, debug=debug)
@@ -616,6 +624,8 @@ def main():
                         nargs='?')
     parser.add_argument('--upload', action='store_true', required=False,
                         help="Toggle to upload the release to GitHub.")
+    parser.add_argument('--no-confirm', action='store_true', required=False,
+                        help="Skip confirmation before uploading.")
     parser.add_argument('--skip-packaging', action='store_true', required=False,
                         help="Skip Windows installer/zip generation.")
     parser.add_argument('--32bit', action='store_true', required=False,
@@ -664,8 +674,10 @@ def main():
 
     if args.upload:
         version_tag = "v" + qutebrowser.__version__
-        utils.print_title("Press enter to release {}...".format(version_tag))
-        input()
+
+        if not args.no_confirm:
+            utils.print_title("Press enter to release {}...".format(version_tag))
+            input()
 
         github_upload(artifacts, version_tag, gh_token=gh_token)
         if upload_to_pypi:

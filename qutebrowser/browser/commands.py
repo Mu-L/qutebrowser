@@ -602,7 +602,7 @@ class CommandDispatcher:
         widget = self._current_widget()
         url = self._current_url()
 
-        handlers: Dict[str, Callable] = {
+        handlers: Dict[str, Callable[..., QUrl]] = {
             'prev': functools.partial(navigate.prevnext, prev=True),
             'next': functools.partial(navigate.prevnext, prev=False),
             'up': navigate.path_up,
@@ -1099,8 +1099,7 @@ class CommandDispatcher:
                 try:
                     runner = self._run_userscript(
                         s, cmd, args, verbose, output_messages, count)
-                    runner.finished.connect(functools.partial(
-                        _on_proc_finished, runner.proc))
+                    runner.finished.connect(_on_proc_finished)
                 except cmdutils.CommandError as e:
                     message.error(str(e))
 
